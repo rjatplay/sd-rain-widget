@@ -247,9 +247,14 @@ def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: pd.Series, dash
     ax.fill_between(x, map_band(bands.p25), map_band(bands.p75), alpha=0.25)
     ax.plot(x, map_band(bands.p50), linewidth=2)
 
-    # Current year overlay
-    ax.plot(x, solid.reindex(window_dates).to_numpy(), linewidth=2.2)
-    ax.plot(x, dashed.reindex(window_dates).to_numpy(), linewidth=2.0, linestyle="--")
+    # Current year overlay (mask pre-Jan 1 of current year)
+    mask_current_year = window_dates.year >= today.year
+    solid_vals = solid.reindex(window_dates).to_numpy()
+    dashed_vals = dashed.reindex(window_dates).to_numpy()
+    solid_vals[~mask_current_year] = np.nan
+    dashed_vals[~mask_current_year] = np.nan
+    ax.plot(x, solid_vals, linewidth=2.2)
+    ax.plot(x, dashed_vals, linewidth=2.0, linestyle="--")
 
     # Axes formatting (match the clean WU style)
     ax.set_xlim(-half_window, half_window)
