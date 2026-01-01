@@ -1,6 +1,9 @@
 name: Build & Publish Chart
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
   schedule:
     # Runs daily. GitHub Actions schedules are UTC. (This is 16:10 UTC ≈ morning in San Diego.)

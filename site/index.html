@@ -14,7 +14,7 @@
   </head>
   <body>
     <div class="wrap">
-      <img src="sd-precip.png" alt="San Diego precipitation chart" />
+      <img id="precip" src="sd-precip.png" alt="San Diego precipitation chart" />
       <div class="meta">
         <div>Last updated: <span id="ts">(loading...)</span></div>
         <div>Solid = fully-observed centered 31-day mean; dashed = climatology-filled end effect.</div>
@@ -24,7 +24,11 @@
     <script>
       fetch("last-updated.txt", { cache: "no-store" })
         .then(r => r.text())
-        .then(t => document.getElementById("ts").textContent = t.trim())
+        .then(t => {
+          const ts = t.trim();
+          document.getElementById("ts").textContent = ts;
+          document.getElementById("precip").src = `sd-precip.png?ts=${encodeURIComponent(ts)}`;
+        })
         .catch(() => document.getElementById("ts").textContent = "unknown");
     </script>
   </body>
