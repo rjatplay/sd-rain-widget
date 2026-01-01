@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import math
 from dataclasses import dataclass
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time
 
 import numpy as np
 import pandas as pd
@@ -71,14 +71,20 @@ def fetch_daily_prcp(point: Point, start: date, end: date) -> pd.Series:
     Fetch daily precip in inches from Meteostat for [start, end].
     Meteostat daily prcp is in mm.
     """
+
+    # --- FIX: Meteostat expects datetime, not date ---
+    if isinstance(start, date) and not isinstance(start, datetime):
+        start = datetime.combine(start, time.min)
+    if isinstance(end, date) and not isinstance(end, datetime):
+        end = datetime.combine(end, time.min)
+    # -----------------------------------------------
+
     df = Daily(point, start, end).fetch()
     if df.empty or "prcp" not in df.columns:
         raise RuntimeError("No precipitation data returned from Meteostat for requested range.")
     df = df[["prcp"]].copy()
     df.index = pd.to_datetime(df.index).tz_localize(None)
-    # Precip mm -> inches
     pr = df["prcp"].astype(float) * INCH_PER_MM
-    # Treat missing as 0 to avoid gaps in smoothing; adjust if you prefer NaN handling.
     pr = pr.fillna(0.0)
     return pr
 
