@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="refresh" content="1800"> <!-- refresh page every 30 min -->
+    <title>San Diego Rain (WU-style)</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 18px; }
+      .wrap { max-width: 1100px; }
+      img { width: 100%; height: auto; display: block; }
+      .meta { color: #555; font-size: 14px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <img src="sd-precip.png" alt="San Diego precipitation chart" />
+      <div class="meta">
+        <div>Last updated: <span id="ts">(loading...)</span></div>
+        <div>Solid = fully-observed centered 31-day mean; dashed = climatology-filled end effect.</div>
+      </div>
+    </div>
+
+    <script>
+      fetch("last-updated.txt", { cache: "no-store" })
+        .then(r => r.text())
+        .then(t => document.getElementById("ts").textContent = t.trim())
+        .catch(() => document.getElementById("ts").textContent = "unknown");
+    </script>
+  </body>
+</html>
