@@ -16,6 +16,7 @@ import argparse
 import math
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -152,12 +153,11 @@ def build_climatology_bands(prcp_in: pd.Series) -> Bands:
     )
 
 
-def make_current_year_series(prcp_y: pd.Series, bands: Bands) -> tuple[np.ndarray, np.ndarray, int]:
+def make_current_year_series(prcp_y: pd.Series, bands: Bands) -> tuple[pd.Series, pd.Series]:
     """
     Returns:
-      solid_sm (length 365, NaN where not defined)
-      dashed_sm (length 365, NaN where not defined)
-      last_known_md_index (int): last index where solid is valid
+      solid_sm (365-day series indexed by date, NaN where not defined)
+      dashed_sm (365-day series indexed by date, NaN where not defined)
     """
     df = prcp_y.to_frame("prcp")
     df = drop_feb29(df)
@@ -217,46 +217,47 @@ def make_current_year_series(prcp_y: pd.Series, bands: Bands) -> tuple[np.ndarra
     dashed_mask = (full > solid_end_ts) & (full <= pd.Timestamp(last_actual))
     dashed[~dashed_mask] = np.nan
 
-    last_known_idx = int(np.where(solid_mask)[0].max()) if solid_mask.any() else -1
-    return solid, dashed, last_known_idx
+    solid_s = pd.Series(solid, index=full)
+    dashed_s = pd.Series(dashed, index=full)
+    return solid_s, dashed_s
 
 
-def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: np.ndarray, dashed: np.ndarray, updated_str: str, today: date):
+def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: pd.Series, dashed: pd.Series, updated_str: str, today: date):
     md_list = md_index_365()
-    x = np.arange(len(md_list))
+    md_to_idx = {md: i for i, md in enumerate(md_list)}
 
-    center_idx = len(md_list) // 2
-    today_md = f"{today.month:02d}-{today.day:02d}"
-    if today_md not in md_list:
-        today_md = "02-28"
-    today_idx = md_list.index(today_md)
-    shift = center_idx - today_idx
+    half_window = 182
+    window_dates = pd.date_range(today - timedelta(days=half_window), today + timedelta(days=half_window), freq="D")
+    x = np.arange(-half_window, half_window + 1)
 
-    base_dates = pd.date_range("2001-01-01", "2001-12-31", freq="D")
-    shifted_dates = pd.to_datetime(np.roll(base_dates.to_numpy(), shift))
+    def md_for(d: pd.Timestamp) -> str:
+        md = d.strftime("%m-%d")
+        if md not in md_to_idx:
+            return "02-28"
+        return md
 
-    def roll(a: np.ndarray) -> np.ndarray:
-        return np.roll(a, shift)
+    def map_band(a: np.ndarray) -> np.ndarray:
+        return np.array([a[md_to_idx[md_for(d)]] for d in window_dates])
 
     fig = plt.figure(figsize=(14, 4), dpi=180)
     ax = plt.gca()
 
     # Historical bands
-    ax.fill_between(x, roll(bands.p10), roll(bands.p90), alpha=0.15)
-    ax.fill_between(x, roll(bands.p25), roll(bands.p75), alpha=0.25)
-    ax.plot(x, roll(bands.p50), linewidth=2)
+    ax.fill_between(x, map_band(bands.p10), map_band(bands.p90), alpha=0.15)
+    ax.fill_between(x, map_band(bands.p25), map_band(bands.p75), alpha=0.25)
+    ax.plot(x, map_band(bands.p50), linewidth=2)
 
     # Current year overlay
-    ax.plot(x, roll(solid), linewidth=2.2)
-    ax.plot(x, roll(dashed), linewidth=2.0, linestyle="--")
+    ax.plot(x, solid.reindex(window_dates).to_numpy(), linewidth=2.2)
+    ax.plot(x, dashed.reindex(window_dates).to_numpy(), linewidth=2.0, linestyle="--")
 
     # Axes formatting (match the clean WU style)
-    ax.set_xlim(0, len(x) - 1)
+    ax.set_xlim(-half_window, half_window)
     ax.set_ylim(bottom=0)
 
     # Month ticks
-    month_pos = [i for i, d in enumerate(shifted_dates) if d.day == 1]
-    month_lbl = [shifted_dates[i].strftime("%b") for i in month_pos]
+    month_pos = [x[i] for i, d in enumerate(window_dates) if d.day == 1]
+    month_lbl = [window_dates[i].strftime("%b") for i in range(len(window_dates)) if window_dates[i].day == 1]
     ax.set_xticks(month_pos)
     ax.set_xticklabels(month_lbl)
 
@@ -265,8 +266,8 @@ def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: np.ndarray, das
 
     ax.set_title("San Diego (KSAN area) — daily precipitation, smoothed (WU-style)")
 
-    ax.axvline(center_idx, color="black", linewidth=0.8, alpha=0.6)
-    ax.text(center_idx, ax.get_ylim()[1] * 0.98, "Today", ha="center", va="top", fontsize=8, alpha=0.8)
+    ax.axvline(0, color="black", linewidth=0.8, alpha=0.6)
+    ax.text(0, ax.get_ylim()[1] * 0.98, "Today", ha="center", va="top", fontsize=8, alpha=0.8)
 
     # Small annotation
     ax.text(
@@ -292,7 +293,8 @@ def main():
 
     outdir = args.outdir.rstrip("/")
 
-    today = date.today()
+    tz = ZoneInfo("America/Los_Angeles")
+    today = datetime.now(tz).date()
     # Pull a little buffer into the current year so smoothing has context, and include yesterday/today
     start_all = date(CLIMO_START_YEAR, 1, 1)
     end_all = today
@@ -306,7 +308,7 @@ def main():
     # Current year series
     cy = today.year
     pr_y = pr.loc[f"{cy}-01-01": str(today)]
-    solid, dashed, _ = make_current_year_series(pr_y, bands)
+    solid, dashed = make_current_year_series(pr_y, bands)
 
     # Output paths
     import os
@@ -314,7 +316,7 @@ def main():
     out_png = os.path.join(outdir, "sd-precip.png")
     out_meta = os.path.join(outdir, "last-updated.txt")
 
-    updated_str = datetime.now().strftime("%Y-%m-%d %H:%M (local build time)")
+    updated_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M (local build time)")
     plot_chart(out_png, out_meta, bands, solid, dashed, updated_str, today)
 
 
