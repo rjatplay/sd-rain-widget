@@ -221,30 +221,42 @@ def make_current_year_series(prcp_y: pd.Series, bands: Bands) -> tuple[np.ndarra
     return solid, dashed, last_known_idx
 
 
-def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: np.ndarray, dashed: np.ndarray, updated_str: str):
+def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: np.ndarray, dashed: np.ndarray, updated_str: str, today: date):
     md_list = md_index_365()
     x = np.arange(len(md_list))
+
+    center_idx = len(md_list) // 2
+    today_md = f"{today.month:02d}-{today.day:02d}"
+    if today_md not in md_list:
+        today_md = "02-28"
+    today_idx = md_list.index(today_md)
+    shift = center_idx - today_idx
+
+    base_dates = pd.date_range("2001-01-01", "2001-12-31", freq="D")
+    shifted_dates = pd.to_datetime(np.roll(base_dates.to_numpy(), shift))
+
+    def roll(a: np.ndarray) -> np.ndarray:
+        return np.roll(a, shift)
 
     fig = plt.figure(figsize=(14, 4), dpi=180)
     ax = plt.gca()
 
     # Historical bands
-    ax.fill_between(x, bands.p10, bands.p90, alpha=0.15)
-    ax.fill_between(x, bands.p25, bands.p75, alpha=0.25)
-    ax.plot(x, bands.p50, linewidth=2)
+    ax.fill_between(x, roll(bands.p10), roll(bands.p90), alpha=0.15)
+    ax.fill_between(x, roll(bands.p25), roll(bands.p75), alpha=0.25)
+    ax.plot(x, roll(bands.p50), linewidth=2)
 
     # Current year overlay
-    ax.plot(x, solid, linewidth=2.2)
-    ax.plot(x, dashed, linewidth=2.0, linestyle="--")
+    ax.plot(x, roll(solid), linewidth=2.2)
+    ax.plot(x, roll(dashed), linewidth=2.0, linestyle="--")
 
     # Axes formatting (match the clean WU style)
     ax.set_xlim(0, len(x) - 1)
     ax.set_ylim(bottom=0)
 
     # Month ticks
-    months = pd.date_range("2001-01-01", "2001-12-01", freq="MS")
-    month_pos = [(m - pd.Timestamp("2001-01-01")).days for m in months]
-    month_lbl = [m.strftime("%b") for m in months]
+    month_pos = [i for i, d in enumerate(shifted_dates) if d.day == 1]
+    month_lbl = [shifted_dates[i].strftime("%b") for i in month_pos]
     ax.set_xticks(month_pos)
     ax.set_xticklabels(month_lbl)
 
@@ -252,6 +264,9 @@ def plot_chart(out_png: str, out_meta: str, bands: Bands, solid: np.ndarray, das
     ax.set_ylabel("Precip (in) — centered 31-day mean")
 
     ax.set_title("San Diego (KSAN area) — daily precipitation, smoothed (WU-style)")
+
+    ax.axvline(center_idx, color="black", linewidth=0.8, alpha=0.6)
+    ax.text(center_idx, ax.get_ylim()[1] * 0.98, "Today", ha="center", va="top", fontsize=8, alpha=0.8)
 
     # Small annotation
     ax.text(
@@ -300,7 +315,7 @@ def main():
     out_meta = os.path.join(outdir, "last-updated.txt")
 
     updated_str = datetime.now().strftime("%Y-%m-%d %H:%M (local build time)")
-    plot_chart(out_png, out_meta, bands, solid, dashed, updated_str)
+    plot_chart(out_png, out_meta, bands, solid, dashed, updated_str, today)
 
 
 if __name__ == "__main__":
